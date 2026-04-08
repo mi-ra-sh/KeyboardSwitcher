@@ -1,6 +1,10 @@
 """
-KeyboardSwitcher — конвертує останнє набране слово між EN/UA розкладками.
-Хоткей: Ctrl+` (налаштовується)
+KeyboardSwitcher — змінює розкладку вже набраного тексту (EN↔UA).
+Перекодовує символи по фізичних клавішах: A↔Ф, S↔І, D↔В, і т.д.
+
+Хоткей:
+  Ctrl+` — конвертує весь набраний текст з буфера (від останнього Enter)
+
 Працює глобально: браузери, термінали, IDE, месенджери.
 """
 
@@ -11,19 +15,14 @@ import os
 import threading
 from collections import deque
 
-# ===== Маппінг клавіш EN <-> UA =====
-# Фізично ті самі клавіші, різні символи в залежності від розкладки
+# ===== Маппінг фізичних клавіш EN <-> UA =====
 
 EN_CHARS = "`qwertyuiop[]\\asdfghjkl;'zxcvbnm,./~QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?"
 UA_CHARS = "'йцукенгшщзхїґфівапролджєячсмитьбю.₴ЙЦУКЕНГШЩЗХЇҐФІВАПРОЛДЖЄЯЧСМИТЬБЮ,"
 
-# Числовий ряд і спецсимволи (Shift варіанти)
-EN_NUMS = "1234567890-="
-UA_NUMS = "1234567890-="
 EN_NUMS_SHIFT = "!@#$%^&*()_+"
 UA_NUMS_SHIFT = "!\"№;%:?*()_+"
 
-# Побудова таблиць перетворення
 _en_to_ua = {}
 _ua_to_en = {}
 
@@ -36,34 +35,31 @@ for en, ua in zip(EN_NUMS_SHIFT, UA_NUMS_SHIFT):
     _ua_to_en[ua] = en
 
 
-def convert_en_to_ua(text: str) -> str:
-    """Конвертує текст набраний на EN розкладці в UA."""
-    return ''.join(_en_to_ua.get(c, c) for c in text)
+def convert_text(text: str) -> str:
+    """Конвертує текст між розкладками. Автоматично визначає напрямок."""
+    if not text:
+        return text
 
-
-def convert_ua_to_en(text: str) -> str:
-    """Конвертує текст набраний на UA розкладці в EN."""
-    return ''.join(_ua_to_en.get(c, c) for c in text)
-
-
-def is_en_chars(text: str) -> bool:
-    """Перевіряє чи текст містить переважно EN символи."""
-    en_count = sum(1 for c in text if c.lower() in 'abcdefghijklmnopqrstuvwxyz')
-    return en_count > len(text) * 0.5
-
-
-def is_ua_chars(text: str) -> bool:
-    """Перевіряє чи текст містить переважно UA символи."""
     ua_count = sum(1 for c in text if c.lower() in 'абвгґдеєжзиіїйклмнопрстуфхцчшщьюя')
-    return ua_count > len(text) * 0.5
+    en_count = sum(1 for c in text if c.lower() in 'abcdefghijklmnopqrstuvwxyz')
+
+    if ua_count > en_count:
+        return ''.join(_ua_to_en.get(c, c) for c in text)
+    elif en_count > ua_count:
+        return ''.join(_en_to_ua.get(c, c) for c in text)
+    else:
+        converted = ''.join(_ua_to_en.get(c, c) for c in text)
+        if converted != text:
+            return converted
+        return ''.join(_en_to_ua.get(c, c) for c in text)
 
 
 # ===== Буфер набраних символів =====
 
 class KeyBuffer:
-    """Зберігає останнє набране слово."""
+    """Зберігає все набране з моменту останнього Enter."""
 
-    def __init__(self, max_size: int = 200):
+    def __init__(self, max_size: int = 2000):
         self.buffer = deque(maxlen=max_size)
         self.lock = threading.Lock()
 
@@ -71,66 +67,39 @@ class KeyBuffer:
         with self.lock:
             self.buffer.append(char)
 
+    def pop_char(self):
+        with self.lock:
+            if self.buffer:
+                self.buffer.pop()
+
     def clear(self):
         with self.lock:
             self.buffer.clear()
 
-    def get_last_word(self) -> str:
-        """Повертає останнє слово з буфера (до пробілу/переносу)."""
+    def get_text(self) -> str:
+        """Повертає весь текст у буфері."""
         with self.lock:
-            text = ''.join(self.buffer)
-        # Знаходимо останнє слово
-        stripped = text.rstrip()
-        if not stripped:
-            return ''
-        # Шукаємо початок останнього слова
-        for i in range(len(stripped) - 1, -1, -1):
-            if stripped[i] in ' \t\n\r':
-                return stripped[i + 1:]
-        return stripped
+            return ''.join(self.buffer)
 
-    def get_word_length(self) -> int:
-        """Кількість символів в останньому слові."""
-        return len(self.get_last_word())
-
-    def remove_last_word(self):
-        """Видаляє останнє слово з буфера."""
+    def set_text(self, text: str):
+        """Замінює вміст буфера."""
         with self.lock:
-            text = ''.join(self.buffer)
-            stripped = text.rstrip()
-            if not stripped:
-                return
-            for i in range(len(stripped) - 1, -1, -1):
-                if stripped[i] in ' \t\n\r':
-                    self.buffer.clear()
-                    self.buffer.extend(text[:i + 1])
-                    return
             self.buffer.clear()
+            self.buffer.extend(text)
 
-    def replace_last_word(self, new_word: str):
-        """Замінює останнє слово в буфері."""
+    def length(self) -> int:
         with self.lock:
-            text = ''.join(self.buffer)
-            stripped = text.rstrip()
-            if not stripped:
-                return
-            for i in range(len(stripped) - 1, -1, -1):
-                if stripped[i] in ' \t\n\r':
-                    self.buffer.clear()
-                    self.buffer.extend(text[:i + 1] + new_word)
-                    return
-            self.buffer.clear()
-            self.buffer.extend(new_word)
+            return len(self.buffer)
 
 
 # ===== Головна логіка =====
 
 key_buffer = KeyBuffer()
-_converting = False  # Прапорець для ігнорування власного вводу
+_converting = False
 
 
 def on_key_event(event: keyboard.KeyboardEvent):
-    """Обробник натискань клавіш."""
+    """Обробник натискань — буферизує всі набрані символи."""
     global _converting
 
     if _converting:
@@ -149,22 +118,26 @@ def on_key_event(event: keyboard.KeyboardEvent):
                 'insert', 'delete', 'home', 'end', 'page up', 'page down',
                 'up', 'down', 'left', 'right',
                 'f1', 'f2', 'f3', 'f4', 'f5', 'f6',
-                'f7', 'f8', 'f9', 'f10', 'f11', 'f12'):
+                'f7', 'f8', 'f9', 'f10', 'f11', 'f12',
+                'escape'):
         return
 
-    # Enter, Tab — очищуємо буфер
-    if name in ('enter', 'tab'):
+    # Enter — очищуємо буфер (текст "закомічений")
+    if name == 'enter':
         key_buffer.clear()
         return
 
-    # Backspace — видаляємо останній символ
-    if name == 'backspace':
-        with key_buffer.lock:
-            if key_buffer.buffer:
-                key_buffer.buffer.pop()
+    # Tab — очищуємо (перехід фокусу)
+    if name == 'tab':
+        key_buffer.clear()
         return
 
-    # Пробіл — додаємо (розділювач слів)
+    # Backspace — видаляємо останній символ з буфера
+    if name == 'backspace':
+        key_buffer.pop_char()
+        return
+
+    # Пробіл
     if name == 'space':
         key_buffer.add_char(' ')
         return
@@ -174,61 +147,49 @@ def on_key_event(event: keyboard.KeyboardEvent):
         key_buffer.add_char(name)
 
 
-def convert_last_word():
-    """Конвертує останнє набране слово між розкладками."""
+def convert_buffer():
+    """Ctrl+` — конвертує весь буфер (все набране з останнього Enter)."""
     global _converting
 
-    word = key_buffer.get_last_word()
-    if not word:
+    text = key_buffer.get_text()
+    if not text:
         return
 
-    # Визначаємо напрямок конвертації
-    if is_ua_chars(word):
-        converted = convert_ua_to_en(word)
-    elif is_en_chars(word):
-        converted = convert_en_to_ua(word)
-    else:
-        # Спробуємо обидва напрямки — якщо є в маппінгу UA→EN
-        converted = convert_ua_to_en(word)
-        if converted == word:
-            converted = convert_en_to_ua(word)
-        if converted == word:
-            return  # Нічого конвертувати
+    converted = convert_text(text)
+    if converted == text:
+        return
 
-    word_len = len(word)
+    text_len = len(text)
 
     _converting = True
     try:
-        # Видаляємо старе слово через backspace
-        for _ in range(word_len):
+        # Видаляємо весь набраний текст через backspace
+        for _ in range(text_len):
             keyboard.send('backspace')
-            time.sleep(0.01)
+            time.sleep(0.005)
 
-        time.sleep(0.02)
+        time.sleep(0.03)
 
-        # Друкуємо нове слово
-        keyboard.write(converted, delay=0.01)
+        # Друкуємо конвертований текст
+        keyboard.write(converted, delay=0.005)
 
         # Оновлюємо буфер
-        key_buffer.replace_last_word(converted)
+        key_buffer.set_text(converted)
     finally:
         _converting = False
 
 
 def main():
     print("KeyboardSwitcher v1.0")
-    print(f"Хоткей: Ctrl+`")
-    print("Натисніть Ctrl+` щоб конвертувати останнє слово між EN/UA")
-    print("Ctrl+C для виходу")
+    print("Ctrl+` — конвертувати набраний текст (EN↔UA)")
+    print("Enter  — очистити буфер")
+    print("Ctrl+C — вихід")
     print("-" * 40)
 
-    # Реєструємо глобальний хук
     keyboard.hook(on_key_event)
+    keyboard.add_hotkey('ctrl+`', convert_buffer, suppress=True)
 
-    # Реєструємо хоткей
-    keyboard.add_hotkey('ctrl+`', convert_last_word, suppress=True)
-
-    print("Працюю... (буфер активний)")
+    print("Працюю...")
 
     try:
         keyboard.wait()

@@ -1,13 +1,10 @@
 """
 Системний трей для KeyboardSwitcher.
-Іконка + меню з опціями.
 """
 
 import pystray
 from PIL import Image, ImageDraw, ImageFont
-import threading
 import sys
-import os
 
 
 def create_icon_image(text="KB", bg_color="#2196F3", fg_color="white"):
@@ -15,11 +12,8 @@ def create_icon_image(text="KB", bg_color="#2196F3", fg_color="white"):
     size = 64
     img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-
-    # Фон — заокруглений квадрат
     draw.rounded_rectangle([2, 2, size - 2, size - 2], radius=10, fill=bg_color)
 
-    # Текст
     try:
         font = ImageFont.truetype("segoeui.ttf", 24)
     except (OSError, IOError):
@@ -35,7 +29,7 @@ def create_icon_image(text="KB", bg_color="#2196F3", fg_color="white"):
     return img
 
 
-def create_tray(on_quit=None, on_toggle=None):
+def create_tray(on_quit=None):
     """Створює системний трей."""
 
     def quit_action(icon, item):
@@ -46,7 +40,7 @@ def create_tray(on_quit=None, on_toggle=None):
     menu = pystray.Menu(
         pystray.MenuItem("KeyboardSwitcher v1.0", None, enabled=False),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Ctrl+` — конвертувати слово", None, enabled=False),
+        pystray.MenuItem("Ctrl+` — конвертувати текст", None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Вихід", quit_action),
     )
